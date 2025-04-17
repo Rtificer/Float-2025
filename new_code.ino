@@ -1,6 +1,8 @@
 #include <PID_v1.h>
 #include "driver/pcnt.h"
 #include <Adafruit_NeoPixel.h>
+#include "MS5837.h"
+#include <Wire.h>
 
 //Macros
 #define abs(x) ((x) < 0 ? -(x) : (x))
@@ -30,6 +32,10 @@ int16_t previousRegisterCount;
 int16_t registerCount;
 int32_t trueCount;
 
+//Depth Sensors
+MS5837 sensor;
+double depth;
+
 //Depth PID
 #define Kp_DEPTH 2
 #define Ki_DEPTH 5
@@ -42,15 +48,10 @@ PID depthPID(&depth, &targetCount, &targetDepth, Kp_DEPTH, Ki_DEPTH, Kd_DEPTH, D
 #define HT 5 //Top
 #define HB 6 //Bottom
 
-//Depth Sensors
-double depth;
-
 //Misc
 uint32_t timeNow;
 uint32_t timeSinceLastDepthCheck;
 uint32_t timeSinceLastPistonCheck;
-uint32_t timeSinceLastDepthCheck;
-
 
 //Indicator LED
 Adafruit_NeoPixel pixels(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -63,7 +64,7 @@ void setup() {
   pinMode(M2, OUTPUT);
   pinMode(M1, OUTPUT);
 
-
+  //Motor Controller
   pcnt_config_t pcnt_config = {};
   pcnt_config.pulse_gpio_num = ENCODER_A_PIN;  // Count pulses on A
   pcnt_config.ctrl_gpio_num = ENCODER_B_PIN;   // Direction control on B
@@ -93,12 +94,18 @@ void setup() {
   pinMode(ENCODER_A_PIN, INPUT); //A = Count Pulses
   pinMode(ENCODER_B_PIN, INPUT); //B = Direction Control
 
-  //Enable the PID
-  depthPID.SetMode(AUTOMATIC);
+
+  //Depth Sensor
+  Wire.begin();
+  sensor.setModel(MS5837::MS5837_02BA);
+  sensor.init();
+  sensor.setFluidDensity(999);
+
+  //Depth PID
+  depthPID.SetMode(AUTOMATIC); //Enable the PID
 
   //Indicator LED
   pixels.begin();
-
 }
 
 void loop() {
