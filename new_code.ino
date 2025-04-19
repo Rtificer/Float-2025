@@ -1,15 +1,25 @@
+//Includes
+//Motor
 #include <PID_v1.h>
 #include "driver/pcnt.h"
+
+//State Indicator
 #include <Adafruit_NeoPixel.h>
-//Used For Depth Sensor
+
+//Depth Sensor
 #include "MS5837.h"
 #include <Wire.h>
 #include <EEPROM.h>  //Location Where depth is stored
+
 //Communication
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 
+
+
+
+//Defines + Declares
 //Macros
 #define abs(x) ((x) < 0 ? -(x) : (x))
 
@@ -315,7 +325,12 @@ void evaluate_program() {
 
 
 void setup() {
+  //Communication
   Serial.begin(115200);  //start Serial Communication
+  WiFi.softAP("JONA_Float");
+  ws.onEvent(onWebSocketEvent); //Call the onWebSocketEvent function, after a websocket event occurs.
+  server.addHandler(&ws); //Add the websocket as a handler
+  server.begin(); //Start the server
 
 
   //Motor
@@ -407,8 +422,6 @@ void loop() {
         mode = SURFACING_AND_COMMUNICATING;
       }
   }
-
-  // put your main code here, to run repeatedly:
-
+  
   delay(10);
 }
