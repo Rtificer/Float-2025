@@ -1,17 +1,32 @@
 #include <PID_v1.h>
 #include "driver/pcnt.h"
 #include <Adafruit_NeoPixel.h>
+//Used For Depth Sensor
 #include "MS5837.h"
 #include <Wire.h>
-#include <EEPROM.h>
+#include <EEPROM.h>  //Location Where depth is stored
+//Communication
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
 //Macros
 #define abs(x) ((x) < 0 ? -(x) : (x))
 
 //States
-#define COMMUNICATE 0
-#define PROGRAM 1
+#define SURFACING_AND_COMMUNICATING 0
+#define COLLECTING_DATA 1
 uint8_t mode;
+
+//Communication
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+#define GET_DATA 0
+#define INITIATE_PROFILE 1
+#define SET_DESIRED_DEPTH 2
+#define SET_ALLOWED_DEPTH_ERROR 3
+#define SET_COLLECTION_TIME 4
+#define SET_DATA_COLLECTION_INTERVAL 5
 
 //Motor
 #define M2 10
@@ -34,15 +49,15 @@ int32_t trueCount;
 MS5837 sensor;
 double depth;
 #define EEPROM_SIZE 512
-size_t writeIndex;
+size_t depthWriteIndex;
 
 //Depth PID
 #define Kp_DEPTH 2
 #define Ki_DEPTH 5
 #define Kd_DEPTH 1
-double targetDepth;
+double desiredDepth = 2.5;  //meters
 double targetCount;
-PID depthPID(&depth, &targetCount, &targetDepth, Kp_DEPTH, Ki_DEPTH, Kd_DEPTH, DIRECT);
+PID depthPID(&depth, &targetCount, &desiredDepth, Kp_DEPTH, Ki_DEPTH, Kd_DEPTH, DIRECT);
 
 //Hall Effect Sensors
 #define HALL_EFFECT_TOP_PIN 5     //Top
@@ -57,20 +72,131 @@ uint32_t timeNow;
 //Indicator LED
 Adafruit_NeoPixel pixels(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 
-//Program Details REPLACE WITH DATA EXCHANGED WITH THE SERVER
-#define DATA_COLLECTION_TIME 45  //(seconds)
-#define DESIRED_DEPTH 2.5        //Meters
-#define ALLOWED_DEPTH_ERROR 0.5  //Meters
-#define SAMPLES_NEEDED DATA_COLLECTION_TIME * 1000 / DEPTH_CHECK_INTERVAL
+//Program Details
+uint8_t dataCollectionTime = 45;     //seconds
+uint8_t dataCollectionInterval = 5;  //seconds
+float allowedDepthError = 0.5;       //meters
 bool needsToCollectMoreData = true;
 // #define MAX_PROGRAM_DURATION 2.5  //Minutes
 // uint32_t programStartTime;
 
+//State
+#define COLLECTING_DATA_COLOR 0xf2f204              //Yellow
+#define SURFACING_AND_COMMUNICATING_COLOR 0x0bc902  //Green
 
+
+
+
+void clearEEPROM() {
+  Serial.println("Clearing depth data!"); 
+  for (size_t i = 0; i < depthWriteIndex; i++) {
+    EEPROM.write(i, 0xFF);  // EEPROM is initilized to 0xFF so this is the same as if it was never written to.
+  }
+  EEPROM.commit();
+  depthWriteIndex = 0;
+}
+
+
+
+void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t data_len) {
+  Serial.println("Received WebSocketEvent!"); 
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.println("Connected!");
+      break;
+
+    case WS_EVT_DATA: { //C is stupid and we need to make a new scope so that it doesn't get confused and think we might possibly skip the initilization of the command variable.
+      if (data_len < 1) {
+          Serial.println("No command given!");
+          return;  //ensure that the payload contains at least a command
+        }
+      uint8_t command = data[0];  //read the first byte as a command.
+      switch (command) {
+        case GET_DATA:
+          Serial.println("Reading and transmitting depth data!");
+          //If we've gathered data, send it.
+          if (needsToCollectMoreData == false) {
+            String depthDataPayload = "";
+            for (size_t i = 1; i < depthWriteIndex; i++) {
+              double measurement;
+              EEPROM.get(i * sizeof(double), measurement);
+              depthDataPayload += measurement;
+              depthDataPayload += ", ";
+            }
+
+            client->text(depthDataPayload);  //Send depth data to client
+            delay(10);                       //Avoid Flooding the client
+            Serial.println("Transmission Complete!");
+          } else {
+            Serial.println("Not enough data has been collected.");
+          }
+          break;
+
+        case INITIATE_PROFILE:
+          needsToCollectMoreData = true;  //Reset Data Collection
+          clearEEPROM();
+          depth = 0;  //Keeps the last depth sample from carrying over into the new mission in rare scenarios with specific depth check and data collection intervals.
+          mode = COLLECTING_DATA;
+          Serial.println("Initiating a new profile!");
+          break;
+
+        case SET_DESIRED_DEPTH:
+          if (data_len >= 1 + sizeof(double)) {
+            memcpy(&desiredDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the desiredDepth.
+            Serial.print("Set desiredDepth to ");
+            Serial.println(desiredDepth);
+          } else {
+            Serial.println("Invalid new desiredDepth!");
+          }
+          break;
+
+        case SET_ALLOWED_DEPTH_ERROR:
+          if (data_len >= 1 + sizeof(float)) {
+            memcpy(&allowedDepthError, data + 1, sizeof(float));
+            Serial.print("Set allowedDepthError to ");  //Copy the data (skipping the command stored in the first byte) into the allowedDepthError.
+            Serial.println(allowedDepthError);
+          } else {
+            Serial.println("Invalid new allowedDepthError!");
+          }
+          break;
+
+        case SET_COLLECTION_TIME:
+          if (data_len >= 2) {
+            dataCollectionTime = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionTime.
+            Serial.print("Set dataCollectionTime to ");
+            Serial.println(dataCollectionTime);
+          } else {
+            Serial.println("Invalid new dataCollectionTime!");
+          }
+          break;
+
+        case SET_DATA_COLLECTION_INTERVAL:
+          if (data_len >= 2) {
+            dataCollectionInterval = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionInterval.
+            Serial.print("Set dataCollectionInterval to ");
+            Serial.println(dataCollectionInterval);
+          } else {
+            Serial.println("Invalid new dataCollectionInterval!");
+          }
+          break;
+
+        default:
+          Serial.println("Invalid Command!");
+          break;
+      }
+      break;
+    }
+
+    case WS_EVT_DISCONNECT:
+      Serial.println("Client disconnected");
+      break;
+  }
+}
 
 
 void drive(int8_t dir, uint8_t speed = 255) {
   //Check the Hall Effect Sensors
+  //If we're trying to go up, and the top hall effect triggers, stop. If we're trying to go down and the bottom hall effect triggers, also stop.
   if ((digitalRead(HALL_EFFECT_TOP_PIN) && dir == UP) || (digitalRead(HALL_EFFECT_BOTTOM_PIN) && dir == DOWN)) {
     dir = STOP;
   }
@@ -114,14 +240,18 @@ void update_piston_count() {
 
 void update_depth() {
   static uint32_t timeSinceLastDepthCheck;
+  static uint32_t timeSinceLastDepthLog;
 
   //If the time elapsed since our last check is greater than our minimum interval
   if ((timeNow - timeSinceLastDepthCheck) > DEPTH_CHECK_INTERVAL) {
-    depth = sensor.depth();                          //Clock Depth Sensor
-    EEPROM.put(writeIndex * sizeof(double), depth);  //Write at the next available index, (multiplied by the size of the data)
-    EEPROM.commit();                                 //comit to EEPROM
-    writeIndex++;                                    //Increment Write Index
-    timeSinceLastDepthCheck = millis();              //update last checked time
+    depth = sensor.depth();              //Clock Depth Sensor
+    timeSinceLastDepthCheck = millis();  //update last checked time
+  }
+  if ((timeNow - timeSinceLastDepthLog) > dataCollectionInterval * 1000) {  //Convert Seconds to Miliseconds
+    EEPROM.put(depthWriteIndex * sizeof(double), depth);                    //Write at the next available index, (multiplied by the size of the data)
+    EEPROM.commit();                                                        //comit to EEPROM
+    depthWriteIndex++;                                                      //Increment Write Index
+    timeSinceLastDepthLog = millis();
   }
 }
 
@@ -140,12 +270,12 @@ void approach_target_piston_count() {
   int32_t optimalSpeed = Kp_PISTON * (static_cast<int32_t>(targetCount) - trueCount);
   uint8_t trueSpeed;
 
+
+  //Clamp optimal speed
   if (abs(optimalSpeed) > 255) {
     trueSpeed = 255;
-  } else if (abs(optimalSpeed) < 0) {
-    trueSpeed = 0;
   } else {
-    trueSpeed = optimalSpeed;
+    trueSpeed = abs(optimalSpeed);
   }
 
   if (optimalSpeed < 0) {
@@ -164,22 +294,23 @@ void evaluate_program() {
     return;
   }
 
-  if (writeIndex < SAMPLES_NEEDED) {
+  uint16_t samplesNeeded = (dataCollectionTime / dataCollectionInterval) + 1;  //Integer division essentialy has builtin floor(), but we want to be safe so we add 1 to make it ceil()
+
+  if (depthWriteIndex < samplesNeeded) {
     return;
   }
 
-  for (size_t i = writeIndex - SAMPLES_NEEDED; i < writeIndex; i++) {
-    double data;
-    EEPROM.get(i * sizeof(double), data);
+  for (size_t i = depthWriteIndex - samplesNeeded; i < depthWriteIndex; i++) {
+    double measurement;
+    EEPROM.get(i * sizeof(double), measurement);
 
-    if (data < DESIRED_DEPTH - ALLOWED_DEPTH_ERROR || data > DESIRED_DEPTH + ALLOWED_DEPTH_ERROR) {
+    if (measurement < desiredDepth - allowedDepthError || measurement > desiredDepth + allowedDepthError) {
       return;
     }
   }
 
   needsToCollectMoreData = false;  //No more samples needed, and data is correct.
 }
-
 
 
 
@@ -248,33 +379,32 @@ void setup() {
 
 
 
-
 void loop() {
   timeNow = millis();
 
   switch (mode) {
-    case COMMUNICATE:
+    case SURFACING_AND_COMMUNICATING:
       //Update Indicator LED
-      pixels.fill(0xf2f204);  //Yellow
+      pixels.fill(SURFACING_AND_COMMUNICATING_COLOR);  //Yellow
       pixels.show();
+      drive(UP);
       break;
-    case PROGRAM:
+    case COLLECTING_DATA:
       // programStartTime = millis();
 
       //Update Indicator LED
-      pixels.fill(0x0bc902);  //Green
+      pixels.fill(COLLECTING_DATA_COLOR);  //Green
       pixels.show();
 
       update_depth();
       evaluate_program();
 
-      if (needsToCollectMoreData = true) {
+      if (needsToCollectMoreData == true) {
         depthPID.Compute();  //Update PID
         process_rotary_encoder();
         approach_target_piston_count();
       } else {
-        drive(UP);
-        mode = COMMUNICATE;
+        mode = SURFACING_AND_COMMUNICATING;
       }
   }
 
