@@ -155,8 +155,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
           case SET_DESIRED_DEPTH:
             if (data_len >= 1 + sizeof(double)) {
               memcpy(&desiredDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the desiredDepth.
-              Serial.print("Set desiredDepth to ");
-              Serial.println(desiredDepth);
+              Serial.printf("Set desiredDepth to %f\n", desiredDepth);
             } else {
               Serial.println("Invalid new desiredDepth!");
             }
@@ -164,9 +163,8 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
 
           case SET_ALLOWED_DEPTH_ERROR:
             if (data_len >= 1 + sizeof(float)) {
-              memcpy(&allowedDepthError, data + 1, sizeof(float));
-              Serial.print("Set allowedDepthError to ");  //Copy the data (skipping the command stored in the first byte) into the allowedDepthError.
-              Serial.println(allowedDepthError);
+              memcpy(&allowedDepthError, data + 1, sizeof(float));//Copy the data (skipping the command stored in the first byte) into the allowedDepthError.
+              Serial.printf("Set allowedDepthError to %f\n", allowedDepthError);
             } else {
               Serial.println("Invalid new allowedDepthError!");
             }
@@ -175,8 +173,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
           case SET_COLLECTION_TIME:
             if (data_len >= 2) {
               dataCollectionTime = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionTime.
-              Serial.print("Set dataCollectionTime to ");
-              Serial.println(dataCollectionTime);
+              Serial.printf("Set dataCollectionTime to %u\n", dataCollectionTime);
             } else {
               Serial.println("Invalid new dataCollectionTime!");
             }
@@ -185,8 +182,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
           case SET_DATA_COLLECTION_INTERVAL:
             if (data_len >= 2) {
               dataCollectionInterval = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionInterval.
-              Serial.print("Set dataCollectionInterval to ");
-              Serial.println(dataCollectionInterval);
+              Serial.printf("Set dataCollectionInterval to %u\n", dataCollectionInterval);
             } else {
               Serial.println("Invalid new dataCollectionInterval!");
             }
