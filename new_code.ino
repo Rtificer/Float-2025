@@ -87,8 +87,8 @@ uint8_t dataCollectionTime = 45;     //seconds
 uint8_t dataCollectionInterval = 5;  //seconds
 float allowedDepthError = 0.5;       //meters
 bool needsToCollectMoreData = true;
-// #define MAX_PROGRAM_DURATION 2.5  //Minutes
-// uint32_t programStartTime;
+#define MAX_PROGRAM_DURATION 2.5  //Minutes
+uint32_t programStartTime;
 
 //State
 #define COLLECTING_DATA_COLOR 0xf2f204              //Yellow
@@ -98,7 +98,7 @@ bool needsToCollectMoreData = true;
 
 
 void clearEEPROM() {
-  Serial.println("Clearing depth data!"); 
+  Serial.println("Clearing depth data!");
   for (size_t i = 0; i < depthWriteIndex; i++) {
     EEPROM.write(i, 0xFF);  // EEPROM is initilized to 0xFF so this is the same as if it was never written to.
   }
@@ -109,93 +109,95 @@ void clearEEPROM() {
 
 
 void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t data_len) {
-  Serial.println("Received WebSocketEvent!"); 
+  Serial.println("Received WebSocketEvent!");
   switch (type) {
     case WS_EVT_CONNECT:
       Serial.println("Connected!");
       break;
 
-    case WS_EVT_DATA: { //C is stupid and we need to make a new scope so that it doesn't get confused and think we might possibly skip the initilization of the command variable.
-      if (data_len < 1) {
+    case WS_EVT_DATA:
+      {  //C is stupid and we need to make a new scope so that it doesn't get confused and think we might possibly skip the initilization of the command variable.
+        if (data_len < 1) {
           Serial.println("No command given!");
           return;  //ensure that the payload contains at least a command
         }
-      uint8_t command = data[0];  //read the first byte as a command.
-      switch (command) {
-        case GET_DATA:
-          Serial.println("Reading and transmitting depth data!");
-          //If we've gathered data, send it.
-          if (needsToCollectMoreData == false) {
-            String depthDataPayload = "";
-            for (size_t i = 1; i < depthWriteIndex; i++) {
-              double measurement;
-              EEPROM.get(i * sizeof(double), measurement);
-              depthDataPayload += measurement;
-              depthDataPayload += ", ";
+        uint8_t command = data[0];  //read the first byte as a command.
+        switch (command) {
+          case GET_DATA:
+            Serial.println("Reading and transmitting depth data!");
+            //If we've gathered data, send it.
+            if (needsToCollectMoreData == false) {
+              String depthDataPayload = "";
+              for (size_t i = 1; i < depthWriteIndex; i++) {
+                double measurement;
+                EEPROM.get(i * sizeof(double), measurement);
+                depthDataPayload += measurement;
+                depthDataPayload += ", ";
+              }
+
+              client->text(depthDataPayload);  //Send depth data to client
+              delay(10);                       //Avoid Flooding the client
+              Serial.println("Transmission Complete!");
+            } else {
+              Serial.println("Not enough data has been collected.");
             }
+            break;
 
-            client->text(depthDataPayload);  //Send depth data to client
-            delay(10);                       //Avoid Flooding the client
-            Serial.println("Transmission Complete!");
-          } else {
-            Serial.println("Not enough data has been collected.");
-          }
-          break;
+          case INITIATE_PROFILE:
+            needsToCollectMoreData = true;  //Reset Data Collection
+            clearEEPROM();
+            depth = 0;  //Keeps the last depth sample from carrying over into the new mission in rare scenarios with specific depth check and data collection intervals.
+            mode = COLLECTING_DATA;
+            Serial.println("Initiating a new profile!");
+            programStartTime = millis();
+            break;
 
-        case INITIATE_PROFILE:
-          needsToCollectMoreData = true;  //Reset Data Collection
-          clearEEPROM();
-          depth = 0;  //Keeps the last depth sample from carrying over into the new mission in rare scenarios with specific depth check and data collection intervals.
-          mode = COLLECTING_DATA;
-          Serial.println("Initiating a new profile!");
-          break;
+          case SET_DESIRED_DEPTH:
+            if (data_len >= 1 + sizeof(double)) {
+              memcpy(&desiredDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the desiredDepth.
+              Serial.print("Set desiredDepth to ");
+              Serial.println(desiredDepth);
+            } else {
+              Serial.println("Invalid new desiredDepth!");
+            }
+            break;
 
-        case SET_DESIRED_DEPTH:
-          if (data_len >= 1 + sizeof(double)) {
-            memcpy(&desiredDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the desiredDepth.
-            Serial.print("Set desiredDepth to ");
-            Serial.println(desiredDepth);
-          } else {
-            Serial.println("Invalid new desiredDepth!");
-          }
-          break;
+          case SET_ALLOWED_DEPTH_ERROR:
+            if (data_len >= 1 + sizeof(float)) {
+              memcpy(&allowedDepthError, data + 1, sizeof(float));
+              Serial.print("Set allowedDepthError to ");  //Copy the data (skipping the command stored in the first byte) into the allowedDepthError.
+              Serial.println(allowedDepthError);
+            } else {
+              Serial.println("Invalid new allowedDepthError!");
+            }
+            break;
 
-        case SET_ALLOWED_DEPTH_ERROR:
-          if (data_len >= 1 + sizeof(float)) {
-            memcpy(&allowedDepthError, data + 1, sizeof(float));
-            Serial.print("Set allowedDepthError to ");  //Copy the data (skipping the command stored in the first byte) into the allowedDepthError.
-            Serial.println(allowedDepthError);
-          } else {
-            Serial.println("Invalid new allowedDepthError!");
-          }
-          break;
+          case SET_COLLECTION_TIME:
+            if (data_len >= 2) {
+              dataCollectionTime = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionTime.
+              Serial.print("Set dataCollectionTime to ");
+              Serial.println(dataCollectionTime);
+            } else {
+              Serial.println("Invalid new dataCollectionTime!");
+            }
+            break;
 
-        case SET_COLLECTION_TIME:
-          if (data_len >= 2) {
-            dataCollectionTime = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionTime.
-            Serial.print("Set dataCollectionTime to ");
-            Serial.println(dataCollectionTime);
-          } else {
-            Serial.println("Invalid new dataCollectionTime!");
-          }
-          break;
+          case SET_DATA_COLLECTION_INTERVAL:
+            if (data_len >= 2) {
+              dataCollectionInterval = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionInterval.
+              Serial.print("Set dataCollectionInterval to ");
+              Serial.println(dataCollectionInterval);
+            } else {
+              Serial.println("Invalid new dataCollectionInterval!");
+            }
+            break;
 
-        case SET_DATA_COLLECTION_INTERVAL:
-          if (data_len >= 2) {
-            dataCollectionInterval = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionInterval.
-            Serial.print("Set dataCollectionInterval to ");
-            Serial.println(dataCollectionInterval);
-          } else {
-            Serial.println("Invalid new dataCollectionInterval!");
-          }
-          break;
-
-        default:
-          Serial.println("Invalid Command!");
-          break;
+          default:
+            Serial.println("Invalid Command!");
+            break;
+        }
+        break;
       }
-      break;
-    }
 
     case WS_EVT_DISCONNECT:
       Serial.println("Client disconnected");
@@ -297,9 +299,11 @@ void approach_target_piston_count() {
 
 
 void evaluate_program() {
-  // if (timeNow - programStartTime > MAX_PROGRAM_DURATION * 60000) {  //convert minutes to milliseconds
-  //   return false;
-  // }
+  if (timeNow - programStartTime > MAX_PROGRAM_DURATION * 60000) {  //convert minutes to milliseconds
+    needsToCollectMoreData = false;                                 //abort
+    return;
+  }
+
   if (needsToCollectMoreData == false) {
     return;
   }
@@ -328,9 +332,9 @@ void setup() {
   //Communication
   Serial.begin(115200);  //start Serial Communication
   WiFi.softAP("JONA_Float");
-  ws.onEvent(onWebSocketEvent); //Call the onWebSocketEvent function, after a websocket event occurs.
-  server.addHandler(&ws); //Add the websocket as a handler
-  server.begin(); //Start the server
+  ws.onEvent(onWebSocketEvent);  //Call the onWebSocketEvent function, after a websocket event occurs.
+  server.addHandler(&ws);        //Add the websocket as a handler
+  server.begin();                //Start the server
 
 
   //Motor
@@ -405,8 +409,6 @@ void loop() {
       drive(UP);
       break;
     case COLLECTING_DATA:
-      // programStartTime = millis();
-
       //Update Indicator LED
       pixels.fill(COLLECTING_DATA_COLOR);  //Green
       pixels.show();
@@ -422,6 +424,6 @@ void loop() {
         mode = SURFACING_AND_COMMUNICATING;
       }
   }
-  
+
   delay(10);
 }
