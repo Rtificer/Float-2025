@@ -163,7 +163,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
 
           case SET_ALLOWED_DEPTH_ERROR:
             if (data_len >= 1 + sizeof(float)) {
-              memcpy(&allowedDepthError, data + 1, sizeof(float));//Copy the data (skipping the command stored in the first byte) into the allowedDepthError.
+              memcpy(&allowedDepthError, data + 1, sizeof(float));  //Copy the data (skipping the command stored in the first byte) into the allowedDepthError.
               Serial.printf("Set allowedDepthError to %f\n", allowedDepthError);
             } else {
               Serial.println("Invalid new allowedDepthError!");
