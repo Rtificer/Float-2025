@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>JONA Float Client</title>
+</head>
+
+<body>
+    <h1>ESP32 WebSocket Client</h1>
+
+    <button onclick="initiateProfile()">Initiate Profile</button>
+    <button onclick="getData()">Get Data</button>
+
+    <br><br>
+
+    <input type="text" id="desiredDepthInput" placeholder="Enter desired depth">
+    <button onclick="setDesiredDepth(parseFloat(document.getElementById('desiredDepthInput').value))">Set Desired Depth</button>
+
+    <br><br>
+
+    <input type="text" id="allowedDepthErrorInput" placeholder="Enter allowed depth error">
+    <button onclick="setAllowedDepthError(parseFloat(document.getElementById('allowedDepthErrorInput').value))">Set Allowed Depth Error</button>
+
+    <br><br>
+
+    <input type="text" id="datacollectionTimeInput" placeholder="Enter data collection time">
+    <button onclick="setDatatCollectionTime(parseInt(document.getElementById('datacollectionTimeInput').value))">Set Data Collection Time</button>
+
+    <br><br>
+
+    <input type="text" id="dataCollectionIntervalInput" placeholder="Enter data collection interval">
+    <button onclick="setDataCollectionInterval(parseInt(document.getElementById('dataCollectionIntervalInput').value))">Set Data Collection Interval</button>
+
+    <div id="output"></div>
+
+    <script>
+        const socket = new WebSocket('ws://<ESP32-IP>/ws');
+
+        socket.onopen = () => {
+            console.log('Connected to ESP32 WebSocket');
+        };
+
+        socket.onmessage = (event) => {
+            const data = event.data;
+            console.log('Received:', data);
+
+            if (typeof data === 'string') {
+                // Parse mode updates
+                if (data.startsWith("mode:")) {
+                    const mode = parseInt(data.slice(5)); //cast to in and trim "mode:"
+                    let modeText = mode === 0 ? "SURFACING_AND_COMMUNICATING" : mode === 1 ? "COLLECTING_DATA" : "UNKNOWN";
+
+                    document.getElementById('output').innerText = 'Mode updated: ' + modeText;
+                    return;
+                }
+
+                // Parse depth data
+                if (data.startsWith("depth_data:")) {
+                    const parsedDepths = data
+                        .slice(11) //trim "depth_data:"
+                        .split(',') //Split by comma
+                        .map(string => parseFloat(string.trim())) //cast to float and trim trailing spaces
+                        .filter(number => !isNaN(number)); //Trim and NaN straggalers :/
+
+                    console.log('Parsed Depth Data:', parsedDepths);
+
+                    document.getElementById('output').innerText = 'Received ' + parsedDepths.length + ' depth data:\n' + parsedDepths.join('\n');
+                }
+            }
+        };
+
+
+        socket.onclose = () => {
+            console.log('Disconnected from ESP32 WebSocket');
+        };
+
+        function getData() {
+            const GET_DATA = 0;
+            const data = new Uint8Array([GET_DATA]);
+            socket.send(data);
+            console.log('Send get data command');
+        }
+
+        function initiateProfile() {
+            const INITIATE_PROFILE = 1;
+            const data = new Uint8Array([INITIATE_PROFILE]);
+            socket.send(data);
+            console.log('Sent initiate profile command');
+        }
+
+        function setDesiredDepth(desired_depth) {
+            //Check for empty value
+            if (isNaN(desired_depth)) {
+                console.error('Invalid desired depth value');
+                return;
+            }
+    
+            const SET_DESIRED_DEPTH = 2;
+            const buffer = new ArrayBuffer(9); // 1 byte for uint8 + 8 bytes for double
+            const view = new DataView(buffer);
+    
+            view.setUint8(0, SET_DESIRED_DEPTH); // Set the first byte to 2
+            view.setFloat64(1, desired_depth, true); // Set the next 8 bytes to the double value
+    
+            socket.send(buffer);
+            console.log('Sent desired depth: ', desired_depth);
+        }
+
+        function setAllowedDepthError(error) {
+            //Check for empty value
+            if (isNaN(error)) {
+                console.error('Invalid allowed depth error value');
+                return;
+            }
+    
+            const SET_ALLOWED_DEPTH_ERROR = 3;
+            const buffer = new ArrayBuffer(5); // 1 byte for uint8 + 4 bytes for float
+            const view = new DataView(buffer);
+    
+            view.setUint8(0, SET_DESIRED_DEPTH); // Set the first byte to 2
+            view.setFloat32(1, error, true); // Set the next 8 bytes to the double value
+    
+            socket.send(buffer);
+            console.log('Sent allowed depth error: ', error);
+        }
+
+        function setDatatCollectionTime(time) {
+            //Check if time is empty or not parseable as a uint8
+            if (isNaN(time) || time < 0 || time > 255) { 
+                console.error('Invalid data collection time value');
+                return;
+            }
+
+            const SET_DATA_COLLECTION_TIME = 4;
+            const data = new Uint8Array([SET_DATA_COLLECTION_TIME, time]);
+            socket.send(data);
+            console.log('Sent data collection time: ', desired_depth);
+        }
+
+        function setDataCollectionInterval(interval) {
+            //Check if time is empty or not parseable as a uint8
+            if (isNaN(interval) || interval < 0 || interval > 255) { 
+                console.error('Invalid data collection interval value');
+                return;
+            }
+
+            const SET_DATA_COLLECTION_INTERVAL = 5;
+            const data = new Uint8Array([SET_DATA_COLLECTION_INTERVAL, interval]);
+            socket.send(data);
+            console.log('Sent data collection interval: ', interval);
+        }
+
+
+    </script>
+</body>
+
+</html>
