@@ -35,7 +35,7 @@ AsyncWebSocket ws("/ws");
 #define INITIATE_PROFILE 1
 #define SET_DESIRED_DEPTH 2
 #define SET_ALLOWED_DEPTH_ERROR 3
-#define SET_COLLECTION_TIME 4
+#define SET_DATA_COLLECTION_TIME 4
 #define SET_DATA_COLLECTION_INTERVAL 5
 
 //Motor
@@ -107,6 +107,15 @@ void clearEEPROM() {
 }
 
 
+void sendCurrentModeToClients() {
+  // Notify all WebSocket clients of new mode (cause why not with multi-client support)
+  for (AsyncWebSocketClient &client : ws.getClients()) {
+    if (client.status() == WS_CONNECTED) {
+      client.text(String("mode:") + String(mode));
+    }
+  }
+}
+
 
 void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t data_len) {
   Serial.println("Received WebSocketEvent!");
@@ -127,12 +136,14 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
             Serial.println("Reading and transmitting depth data!");
             //If we've gathered data, send it.
             if (needsToCollectMoreData == false) {
-              String depthDataPayload = "";
+              String depthDataPayload = "depth_data:";
               for (size_t i = 1; i < depthWriteIndex; i++) {
                 double measurement;
                 EEPROM.get(i * sizeof(double), measurement);
                 depthDataPayload += measurement;
-                depthDataPayload += ", ";
+                if (i < depthWriteIndex - 1) { //Don't add ", " to the last value
+                  depthDataPayload += ", ";
+                }
               }
 
               client->text(depthDataPayload);  //Send depth data to client
@@ -148,6 +159,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
             clearEEPROM();
             depth = 0;  //Keeps the last depth sample from carrying over into the new mission in rare scenarios with specific depth check and data collection intervals.
             mode = COLLECTING_DATA;
+            sendCurrentModeToClients();
             Serial.println("Initiating a new profile!");
             programStartTime = millis();
             break;
@@ -170,9 +182,9 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
             }
             break;
 
-          case SET_COLLECTION_TIME:
+          case SET_DATA_COLLECTION_TIME:
             if (data_len >= 2) {
-              dataCollectionTime = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionTime.
+              dataCollectionTime = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionTime. 
               Serial.printf("Set dataCollectionTime to %u\n", dataCollectionTime);
             } else {
               Serial.println("Invalid new dataCollectionTime!");
@@ -418,6 +430,7 @@ void loop() {
         approach_target_piston_count();
       } else {
         mode = SURFACING_AND_COMMUNICATING;
+        sendCurrentModeToClients();
       }
   }
 
