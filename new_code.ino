@@ -9,7 +9,6 @@
 //Depth Sensor
 #include "MS5837.h"
 #include <Wire.h>
-#include <EEPROM.h>  //Location Where depth is stored
 
 //Communication
 #include <WiFi.h>
@@ -26,7 +25,7 @@
 //States
 #define SURFACING_AND_COMMUNICATING 0
 #define COLLECTING_DATA 1
-uint8_t mode;
+uint8_t mode = SURFACING_AND_COMMUNICATING;
 
 //Communication
 AsyncWebServer server(80);
@@ -47,7 +46,7 @@ AsyncWebSocket ws("/ws");
 #define UP 1
 #define DOWN -1
 
-#define Kp_PISTON 0.2
+#define Kp_PISTON 0.1
 
 //Rotary Controller
 #define ENCODER_A_PIN GPIO_NUM_17  //Rotary encoder A signal (Labled A0)
@@ -58,7 +57,7 @@ int32_t trueCount;
 //Depth Sensors
 MS5837 sensor;
 double depth;
-#define EEPROM_SIZE 512
+double depth_data[64];
 size_t depthWriteIndex;
 
 //Depth PID
@@ -91,18 +90,15 @@ bool needsToCollectMoreData = true;
 uint32_t programStartTime;
 
 //State
-#define COLLECTING_DATA_COLOR 0xf2f204              //Yellow
-#define SURFACING_AND_COMMUNICATING_COLOR 0x0bc902  //Green
+#define COLLECTING_DATA_COLOR 0x02e33e             //Green
+#define SURFACING_AND_COMMUNICATING_COLOR 0xe6d40e  //Yellow
 
 
 
 
-void clearEEPROM() {
+void clearDepthData() {
   Serial.println("Clearing depth data!");
-  for (size_t i = 0; i < depthWriteIndex; i++) {
-    EEPROM.write(i, 0xFF);  // EEPROM is initilized to 0xFF so this is the same as if it was never written to.
-  }
-  EEPROM.commit();
+  memset(depth_data, 0, sizeof(depth_data));
   depthWriteIndex = 0;
 }
 
@@ -121,7 +117,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
   Serial.println("Received WebSocketEvent!");
   switch (type) {
     case WS_EVT_CONNECT:
-      Serial.println("Connected!");
+      Serial.println("Connected to client!");
       break;
 
     case WS_EVT_DATA:
@@ -137,11 +133,9 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
             //If we've gathered data, send it.
             if (needsToCollectMoreData == false) {
               String depthDataPayload = "depth_data:";
-              for (size_t i = 1; i < depthWriteIndex; i++) {
-                double measurement;
-                EEPROM.get(i * sizeof(double), measurement);
-                depthDataPayload += measurement;
-                if (i < depthWriteIndex - 1) { //Don't add ", " to the last value
+              for (size_t i = 0; i < depthWriteIndex; i++) {
+                depthDataPayload += depth_data[i];
+                if (i < depthWriteIndex - 1) {  //Don't add ", " to the last value
                   depthDataPayload += ", ";
                 }
               }
@@ -156,12 +150,16 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
 
           case INITIATE_PROFILE:
             needsToCollectMoreData = true;  //Reset Data Collection
-            clearEEPROM();
+            clearDepthData();
             depth = 0;  //Keeps the last depth sample from carrying over into the new mission in rare scenarios with specific depth check and data collection intervals.
             mode = COLLECTING_DATA;
             sendCurrentModeToClients();
-            Serial.println("Initiating a new profile!");
             programStartTime = millis();
+
+            Serial.println("Initiating a new profile!");
+            //Update Indicator LED
+            pixels.fill(COLLECTING_DATA_COLOR);  //Green
+            pixels.show();
             break;
 
           case SET_DESIRED_DEPTH:
@@ -184,7 +182,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
 
           case SET_DATA_COLLECTION_TIME:
             if (data_len >= 2) {
-              dataCollectionTime = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionTime. 
+              dataCollectionTime = data[1];  //Copy the data (skipping the command stored in the first byte) into the dataCollectionTime.
               Serial.printf("Set dataCollectionTime to %u\n", dataCollectionTime);
             } else {
               Serial.println("Invalid new dataCollectionTime!");
@@ -215,10 +213,24 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
 
 
 void drive(int8_t dir, uint8_t speed = 255) {
-  //Check the Hall Effect Sensors
-  //If we're trying to go up, and the top hall effect triggers, stop. If we're trying to go down and the bottom hall effect triggers, also stop.
-  if ((digitalRead(HALL_EFFECT_TOP_PIN) && dir == UP) || (digitalRead(HALL_EFFECT_BOTTOM_PIN) && dir == DOWN)) {
+  static bool hallEffectTriggered = false;
+
+  // Check the Hall Effect Sensors
+  if (!digitalRead(HALL_EFFECT_TOP_PIN) && dir == UP) {
+    Serial.println("Hall Effect Sensor Trip (Top)!");
+    hallEffectTriggered = true;
     dir = STOP;
+  } else if (!digitalRead(HALL_EFFECT_BOTTOM_PIN) && dir == DOWN) {
+    Serial.println("Hall Effect Sensor Trip (Bottom)!");
+    hallEffectTriggered = true;
+    dir = STOP;
+  } else {
+    hallEffectTriggered = false;  // Reset the flag if no sensor is triggered
+  }
+
+  // If a Hall Effect sensor was triggered, prevent further movement in that direction
+  if (hallEffectTriggered && dir != STOP) {
+    return;
   }
 
   analogWrite(ANALOG_SPEED_PIN, speed);  //Change the speed, defaulting to full.
@@ -244,6 +256,12 @@ void update_piston_count() {
   static int16_t previousRegisterCount;
   static int16_t registerCount;
 
+  if (!digitalRead(HALL_EFFECT_BOTTOM_PIN)) {
+    trueCount = 0;
+    Serial.println("Reset Count!");
+    return;
+  }
+
   previousRegisterCount = registerCount;
   pcnt_get_counter_value(PCNT_UNIT, &registerCount);
 
@@ -255,6 +273,7 @@ void update_piston_count() {
     diff -= 65536;
   }
   trueCount += diff;
+  Serial.println(trueCount);
 }
 
 
@@ -266,12 +285,12 @@ void update_depth() {
   if ((timeNow - timeSinceLastDepthCheck) > DEPTH_CHECK_INTERVAL) {
     depth = sensor.depth();              //Clock Depth Sensor
     timeSinceLastDepthCheck = millis();  //update last checked time
+    // Serial.println(depth);
   }
   if ((timeNow - timeSinceLastDepthLog) > dataCollectionInterval * 1000) {  //Convert Seconds to Miliseconds
-    EEPROM.put(depthWriteIndex * sizeof(double), depth);                    //Write at the next available index, (multiplied by the size of the data)
-    EEPROM.commit();                                                        //comit to EEPROM
+    depth_data[depthWriteIndex] = depth;                                    //Write at the next available index
     depthWriteIndex++;                                                      //Increment Write Index
-    timeSinceLastDepthLog = millis();
+    timeSinceLastDepthLog = millis();                                       //update last checked time
   }
 }
 
@@ -321,12 +340,8 @@ void evaluate_program() {
   if (depthWriteIndex < samplesNeeded) {
     return;
   }
-
   for (size_t i = depthWriteIndex - samplesNeeded; i < depthWriteIndex; i++) {
-    double measurement;
-    EEPROM.get(i * sizeof(double), measurement);
-
-    if (measurement < desiredDepth - allowedDepthError || measurement > desiredDepth + allowedDepthError) {
+    if (depth_data[i] < desiredDepth - allowedDepthError || depth_data[i] > desiredDepth + allowedDepthError) {
       return;
     }
   }
@@ -364,13 +379,11 @@ void setup() {
   pcnt_config.lctrl_mode = PCNT_MODE_REVERSE;  // Reverse direction if B is low
   pcnt_config.hctrl_mode = PCNT_MODE_KEEP;     // Keep counting direction if B is high
 
-  pcnt_config.counter_h_lim = 10000;   // Arbitrary upper limit
-  pcnt_config.counter_l_lim = -10000;  // Arbitrary lower limit
-
   // Initialize PCNT unit
-  pcnt_unit_config(&pcnt_config);
+  if (pcnt_unit_config(&pcnt_config) != ESP_OK) {
+    Serial.println("PCNT FAILED TO INITILIZE!");
+  }
 
-  // Enable PCNT counter
   pcnt_counter_pause(PCNT_UNIT);
   pcnt_counter_clear(PCNT_UNIT);
   pcnt_counter_resume(PCNT_UNIT);
@@ -386,21 +399,23 @@ void setup() {
   sensor.init();
   sensor.setFluidDensity(998);  //Aprox Density of water (998 for pool water, 997 for freshwater, 1024 for saltwater)
 
-  //Depth Data
-  if (EEPROM.begin(EEPROM_SIZE)) {
-    Serial.println("EEPROM Initalized");
-  }
 
   //Depth PID
   depthPID.SetMode(AUTOMATIC);  //Enable the PID
 
+
   //Hall Effect Sensors
-  pinMode(HALL_EFFECT_TOP_PIN, INPUT);     //Top
-  pinMode(HALL_EFFECT_BOTTOM_PIN, INPUT);  //Bottom
+  pinMode(HALL_EFFECT_TOP_PIN, INPUT_PULLUP);     //Top
+  pinMode(HALL_EFFECT_BOTTOM_PIN, INPUT_PULLUP);  //Bottom
 
 
-  //Indicator LED
   pixels.begin();
+  delay(100);
+  pixels.fill(SURFACING_AND_COMMUNICATING);
+  pixels.show();
+
+
+  Serial.println("Finished Setup!");
 }
 
 
@@ -411,19 +426,11 @@ void loop() {
 
   switch (mode) {
     case SURFACING_AND_COMMUNICATING:
-      //Update Indicator LED
-      pixels.fill(SURFACING_AND_COMMUNICATING_COLOR);  //Yellow
-      pixels.show();
-      drive(UP);
+      drive(DOWN);
       break;
     case COLLECTING_DATA:
-      //Update Indicator LED
-      pixels.fill(COLLECTING_DATA_COLOR);  //Green
-      pixels.show();
-
       update_depth();
       evaluate_program();
-
       if (needsToCollectMoreData == true) {
         depthPID.Compute();  //Update PID
         process_rotary_encoder();
@@ -431,6 +438,10 @@ void loop() {
       } else {
         mode = SURFACING_AND_COMMUNICATING;
         sendCurrentModeToClients();
+
+        //Update Indicator LED
+        pixels.fill(SURFACING_AND_COMMUNICATING_COLOR);  //Yellow
+        pixels.show();
       }
   }
 
