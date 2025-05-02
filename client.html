@@ -34,7 +34,7 @@
     <div id="output"></div>
 
     <script>
-        const socket = new WebSocket('ws://<ESP32-IP>/ws');
+        const socket = new WebSocket('ws://192.168.4.1/ws');
 
         socket.onopen = () => {
             console.log('Connected to ESP32 WebSocket');
