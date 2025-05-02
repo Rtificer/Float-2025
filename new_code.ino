@@ -36,6 +36,9 @@ AsyncWebSocket ws("/ws");
 #define SET_ALLOWED_DEPTH_ERROR 3
 #define SET_DATA_COLLECTION_TIME 4
 #define SET_DATA_COLLECTION_INTERVAL 5
+#define SET_DEPTH_PID_PROPORTIONAL 6
+#define SET_DEPTH_PID_INTEGRAL 7
+#define SET_DEPTH_PID_DERIVATIVE 8
 
 //Motor
 #define M2 10
@@ -51,7 +54,7 @@ AsyncWebSocket ws("/ws");
 //Rotary Controller
 #define ENCODER_A_PIN GPIO_NUM_17  //Rotary encoder A signal (Labled A0)
 #define ENCODER_B_PIN GPIO_NUM_16  //Rotary encoder B signal (Labled A1)
-#define PCNT_UNIT PCNT_UNIT_0      //Using PCNT unit 0
+#define PCNT_UNIT PCNT_UNIT_0      //Using PCNT un it 0
 int32_t trueCount;
 
 //Depth Sensors
@@ -61,12 +64,12 @@ double depth_data[64];
 size_t depthWriteIndex;
 
 //Depth PID
-#define Kp_DEPTH 2
-#define Ki_DEPTH 5
-#define Kd_DEPTH 1
+double KpDepth = 2;
+double KiDepth = 5;
+double KdDepth = 1;
 double desiredDepth = 2.5;  //meters
 double targetCount;
-PID depthPID(&depth, &targetCount, &desiredDepth, Kp_DEPTH, Ki_DEPTH, Kd_DEPTH, DIRECT);
+PID depthPID(&depth, &targetCount, &desiredDepth, KpDepth, KiDepth, KdDepth, DIRECT);
 
 //Hall Effect Sensors
 #define HALL_EFFECT_TOP_PIN 5     //Top
@@ -198,6 +201,33 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
             }
             break;
 
+          case SET_DEPTH_PID_PROPORTIONAL:
+            if (data_len >= 1 + sizeof(double)) {
+              memcpy(&KpDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the KpDepth.
+              Serial.printf("Set KpDepth to %f\n", KpDepth);
+            } else {
+              Serial.println("Invalid new KpDepth!");
+            }
+            break;
+
+          case SET_DEPTH_PID_INTEGRAL:
+            if (data_len >= 1 + sizeof(double)) {
+              memcpy(&KiDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the KpDepth.
+              Serial.printf("Set KiDepth to %f\n", KiDepth);
+            } else {
+              Serial.println("Invalid new KiDepth!");
+            }
+            break;
+            
+          case SET_DEPTH_PID_DERIVATIVE:
+            if (data_len >= 1 + sizeof(double)) {
+              memcpy(&KdDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the KpDepth.
+              Serial.printf("Set KdDepth to %f\n", KdDepth);
+            } else {
+              Serial.println("Invalid new KdDepth!");
+            }
+            break;
+            
           default:
             Serial.println("Invalid Command!");
             break;
