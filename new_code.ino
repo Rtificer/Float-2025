@@ -204,6 +204,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
           case SET_DEPTH_PID_PROPORTIONAL:
             if (data_len >= 1 + sizeof(double)) {
               memcpy(&KpDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the KpDepth.
+              depthPID.SetTunings(KpDepth, KiDepth, KdDepth);
               Serial.printf("Set KpDepth to %f\n", KpDepth);
             } else {
               Serial.println("Invalid new KpDepth!");
@@ -213,6 +214,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
           case SET_DEPTH_PID_INTEGRAL:
             if (data_len >= 1 + sizeof(double)) {
               memcpy(&KiDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the KpDepth.
+              depthPID.SetTunings(KpDepth, KiDepth, KdDepth);
               Serial.printf("Set KiDepth to %f\n", KiDepth);
             } else {
               Serial.println("Invalid new KiDepth!");
@@ -222,6 +224,7 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
           case SET_DEPTH_PID_DERIVATIVE:
             if (data_len >= 1 + sizeof(double)) {
               memcpy(&KdDepth, data + 1, sizeof(double));  //Copy the data (skipping the command stored in the first byte) into the KpDepth.
+              depthPID.SetTunings(KpDepth, KiDepth, KdDepth);
               Serial.printf("Set KdDepth to %f\n", KdDepth);
             } else {
               Serial.println("Invalid new KdDepth!");
