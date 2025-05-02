@@ -31,6 +31,23 @@
     <input type="text" id="dataCollectionIntervalInput" placeholder="Enter data collection interval">
     <button onclick="setDataCollectionInterval(parseInt(document.getElementById('dataCollectionIntervalInput').value))">Set Data Collection Interval</button>
 
+    <br><br>
+
+    <input type="text" id="depthPIDProportionalInput" placeholder="Enter depth PID proportional component">
+    <button onclick="setDepthPIDProportional(parseFloat(document.getElementById('depthPIDProportionalInput').value))">Enter Depth PID Proportional Component</button>
+
+    <br><br>
+
+    <input type="text" id="depthPIDIntegralInput" placeholder="Enter depth PID integral component">
+    <button onclick="setDepthPIDIntegral(parseFloat(document.getElementById('depthPIDIntegralInput').value))">Enter Depth PID Integral Component</button>
+
+    <br><br>
+
+    <input type="text" id="depthPIDDerivativeInput" placeholder="Enter depth PID derivative component">
+    <button onclick="setDepthPIDDerivative(parseFloat(document.getElementById('depthPIDDerivativeInput').value))">Enter Depth PID Derivative Component</button>
+
+    <br><br>
+
     <div id="output"></div>
 
     <script>
@@ -91,7 +108,7 @@
         function setDesiredDepth(desired_depth) {
             //Check for empty value
             if (isNaN(desired_depth)) {
-                console.error('Invalid desired depth value');
+                console.error('Invalid new desired depth value!');
                 return;
             }
     
@@ -109,7 +126,7 @@
         function setAllowedDepthError(error) {
             //Check for empty value
             if (isNaN(error)) {
-                console.error('Invalid allowed depth error value');
+                console.error('Invalid value of new allowed depth error!');
                 return;
             }
     
@@ -127,7 +144,7 @@
         function setDatatCollectionTime(time) {
             //Check if time is empty or not parseable as a uint8
             if (isNaN(time) || time < 0 || time > 255) { 
-                console.error('Invalid data collection time value');
+                console.error('Invalid new data collection time value!');
                 return;
             }
 
@@ -140,7 +157,7 @@
         function setDataCollectionInterval(interval) {
             //Check if time is empty or not parseable as a uint8
             if (isNaN(interval) || interval < 0 || interval > 255) { 
-                console.error('Invalid data collection interval value');
+                console.error('Invalid new data collection interval value!');
                 return;
             }
 
@@ -150,7 +167,59 @@
             console.log('Sent data collection interval: ', interval);
         }
 
+        function setDepthPIDProportional(Kp_depth) {
+            //Check for empty value
+            if (isNaN(Kp_depth)) {
+                console.error('Invalid value of new depth PID proportional component!');
+                return;
+            }
+    
+            const SET_DEPTH_PID_PROPORTIONAL = 6;
+            const buffer = new ArrayBuffer(9); // 1 byte for uint8 + 8 bytes for double
+            const view = new DataView(buffer);
+    
+            view.setUint8(0, SET_DEPTH_PID_PROPORTIONAL); // Set the first byte to 2
+            view.setFloat64(1, Kp_depth, true); // Set the next 8 bytes to the double value
+    
+            socket.send(buffer);
+            console.log('Sent new PID proportional component: ', Kp_depth);
+        }
 
+        function setDepthPIDIntegral(Ki_depth) {
+            //Check for empty value
+            if (isNaN(Ki_depth)) {
+                console.error('Invalid value of new depth PID integral component!');
+                return;
+            }
+    
+            const SET_DEPTH_PID_INTEGRAL = 6;
+            const buffer = new ArrayBuffer(9); // 1 byte for uint8 + 8 bytes for double
+            const view = new DataView(buffer);
+    
+            view.setUint8(0, SET_DEPTH_PID_INTEGRAL); // Set the first byte to 2
+            view.setFloat64(1, Ki_depth, true); // Set the next 8 bytes to the double value
+    
+            socket.send(buffer);
+            console.log('Sent new PID integral component: ', Ki_depth);
+        }
+
+        function setDepthPIDDerivative(Kd_depth) {
+            //Check for empty value
+            if (isNaN(Kd_depth)) {
+                console.error('Invalid value of new depth PID derivative component!');
+                return;
+            }
+    
+            const SET_DEPTH_PID_DERIVATIVE = 6;
+            const buffer = new ArrayBuffer(9); // 1 byte for uint8 + 8 bytes for double
+            const view = new DataView(buffer);
+    
+            view.setUint8(0, SET_DEPTH_PID_DERIVATIVE); // Set the first byte to 2
+            view.setFloat64(1, Kd_depth, true); // Set the next 8 bytes to the double value
+    
+            socket.send(buffer);
+            console.log('Sent new PID derivative component: ', Kd_depth);
+        }
     </script>
 </body>
 
