@@ -13,6 +13,11 @@
 
     <br><br>
 
+    <button onclick="initiateProfile()">Prepare For Pressurization</button>
+    <button onclick="getData()">Prepare For Profile</button>
+
+    <br><br>
+
     <input type="text" id="desiredDepthInput" placeholder="Enter desired depth">
     <button onclick="setDesiredDepth(parseFloat(document.getElementById('desiredDepthInput').value))">Set Desired Depth</button>
 
@@ -91,15 +96,29 @@
             console.log('Disconnected from ESP32 WebSocket');
         };
 
+        function prepareForPressurization() {
+            const PREPARE_FOR_PRESSURIZATION = 0;
+            const data = new Uint8Array([PREPARE_FOR_PRESSURIZATION]);
+            socket.send(data);
+            console.log('Sent prepare for pressurization command');
+        }
+
+        function prepareForProfile() {
+            const PREPARE_FOR_PROFILE = 1;
+            const data = new Uint8Array([PREPARE_FOR_PROFILE]);
+            socket.send(data);
+            console.log('Sent prepare for profile command');
+        }
+
         function getData() {
-            const GET_DATA = 0;
+            const GET_DATA = 2;
             const data = new Uint8Array([GET_DATA]);
             socket.send(data);
             console.log('Send get data command');
         }
 
         function initiateProfile() {
-            const INITIATE_PROFILE = 1;
+            const INITIATE_PROFILE = 3;
             const data = new Uint8Array([INITIATE_PROFILE]);
             socket.send(data);
             console.log('Sent initiate profile command');
@@ -112,7 +131,7 @@
                 return;
             }
     
-            const SET_DESIRED_DEPTH = 2;
+            const SET_DESIRED_DEPTH = 4;
             const buffer = new ArrayBuffer(9); // 1 byte for uint8 + 8 bytes for double
             const view = new DataView(buffer);
     
@@ -130,7 +149,7 @@
                 return;
             }
     
-            const SET_ALLOWED_DEPTH_ERROR = 3;
+            const SET_ALLOWED_DEPTH_ERROR = 5;
             const buffer = new ArrayBuffer(5); // 1 byte for uint8 + 4 bytes for float
             const view = new DataView(buffer);
     
@@ -148,7 +167,7 @@
                 return;
             }
 
-            const SET_DATA_COLLECTION_TIME = 4;
+            const SET_DATA_COLLECTION_TIME = 6;
             const data = new Uint8Array([SET_DATA_COLLECTION_TIME, time]);
             socket.send(data);
             console.log('Sent data collection time: ', desired_depth);
@@ -161,7 +180,7 @@
                 return;
             }
 
-            const SET_DATA_COLLECTION_INTERVAL = 5;
+            const SET_DATA_COLLECTION_INTERVAL = 7;
             const data = new Uint8Array([SET_DATA_COLLECTION_INTERVAL, interval]);
             socket.send(data);
             console.log('Sent data collection interval: ', interval);
@@ -174,7 +193,7 @@
                 return;
             }
     
-            const SET_DEPTH_PID_PROPORTIONAL = 6;
+            const SET_DEPTH_PID_PROPORTIONAL = 8;
             const buffer = new ArrayBuffer(9); // 1 byte for uint8 + 8 bytes for double
             const view = new DataView(buffer);
     
@@ -192,7 +211,7 @@
                 return;
             }
     
-            const SET_DEPTH_PID_INTEGRAL = 6;
+            const SET_DEPTH_PID_INTEGRAL = 9;
             const buffer = new ArrayBuffer(9); // 1 byte for uint8 + 8 bytes for double
             const view = new DataView(buffer);
     
@@ -210,7 +229,7 @@
                 return;
             }
     
-            const SET_DEPTH_PID_DERIVATIVE = 6;
+            const SET_DEPTH_PID_DERIVATIVE = 10;
             const buffer = new ArrayBuffer(9); // 1 byte for uint8 + 8 bytes for double
             const view = new DataView(buffer);
     
