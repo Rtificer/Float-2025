@@ -30,15 +30,18 @@ uint8_t mode = SURFACING_AND_COMMUNICATING;
 //Communication
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
-#define GET_DATA 0
-#define INITIATE_PROFILE 1
-#define SET_DESIRED_DEPTH 2
-#define SET_ALLOWED_DEPTH_ERROR 3
-#define SET_DATA_COLLECTION_TIME 4
-#define SET_DATA_COLLECTION_INTERVAL 5
-#define SET_DEPTH_PID_PROPORTIONAL 6
-#define SET_DEPTH_PID_INTEGRAL 7
-#define SET_DEPTH_PID_DERIVATIVE 8
+
+#define PREPARE_FOR_PRESSURIZATION 0
+#define PREPARE_FOR_PROFILE 1
+#define GET_DATA 2
+#define INITIATE_PROFILE 3
+#define SET_DESIRED_DEPTH 4
+#define SET_ALLOWED_DEPTH_ERROR 5
+#define SET_DATA_COLLECTION_TIME 6
+#define SET_DATA_COLLECTION_INTERVAL 7
+#define SET_DEPTH_PID_PROPORTIONAL 8
+#define SET_DEPTH_PID_INTEGRAL 9
+#define SET_DEPTH_PID_DERIVATIVE 10
 
 //Motor
 #define M2 10
@@ -85,6 +88,7 @@ uint32_t timeNow;
 Adafruit_NeoPixel pixels(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 
 //Program Details
+bool isPreparingForPressurization = false;
 uint8_t dataCollectionTime = 45;     //seconds
 uint8_t dataCollectionInterval = 5;  //seconds
 float allowedDepthError = 0.5;       //meters
@@ -131,6 +135,24 @@ void onWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsE
         }
         uint8_t command = data[0];  //read the first byte as a command.
         switch (command) {
+          case PREPARE_FOR_PRESSURIZATION:
+            if (isPreparingForPressurization) {
+              Serial.println("Got prepare for pressurization command while already preparing or prepared!");
+            } else {
+              isPreparingForPressurization = true;
+              Serial.println("Preparing for pressurization!");
+            }
+            break;
+          
+          case PREPARE_FOR_PROFILE:
+            if (!isPreparingForPressurization) {
+              Serial.println("Got prepare for profile command while already preparing or prepared!");
+            } else {
+              isPreparingForPressurization = false;
+              Serial.println("Preparing to profile!");
+            }
+            break;
+
           case GET_DATA:
             Serial.println("Reading and transmitting depth data!");
             //If we've gathered data, send it.
@@ -459,7 +481,12 @@ void loop() {
 
   switch (mode) {
     case SURFACING_AND_COMMUNICATING:
-      drive(DOWN);
+      if (isPreparingForPressurization) {
+        drive(UP);
+      }
+      else {
+        drive(DOWN);
+      }
       break;
     case COLLECTING_DATA:
       update_depth();
@@ -471,6 +498,7 @@ void loop() {
       } else {
         mode = SURFACING_AND_COMMUNICATING;
         sendCurrentModeToClients();
+        isPreparingForPressurization = false; //Fail safe in case you drop the float in the water before preparing for a profile
 
         //Update Indicator LED
         pixels.fill(SURFACING_AND_COMMUNICATING_COLOR);  //Yellow
